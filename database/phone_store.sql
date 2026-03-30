@@ -64,6 +64,7 @@ CREATE TABLE orders (
     address TEXT NOT NULL,
     total_price DECIMAL(15,0) NOT NULL,
     status ENUM('pending','confirmed','shipping','delivered','cancelled') DEFAULT 'pending',
+    estimated_delivery DATE NULL DEFAULT NULL,   -- ← thêm dòng này
     payment_method ENUM('cod','bank_transfer') DEFAULT 'cod',
     payment_status ENUM('unpaid','paid','refunded') DEFAULT 'unpaid',
     payment_code VARCHAR(50),
