@@ -1,7 +1,6 @@
 <?php
     session_start();
     require_once '../config.php';
-
     // Chưa đăng nhập → về login
     if (!isset($_SESSION['user_id'])) {
         header('Location: ../auth/login.php');
@@ -13,12 +12,11 @@
     // ── XỬ LÝ CẬP NHẬT / XÓA ───────────────────────────
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-        // Cập nhật số lượng
+        // Cập nhật số lượng — xóa dòng thừa
         if (isset($_POST['update_qty'])) {
             $cart_id = (int)$_POST['cart_id'];
             $qty     = max(1, (int)$_POST['quantity']);
-            $conn->prepare("UPDATE cart SET quantity = ? WHERE id = ? AND user_id = ?")
-                ->bind_param("iii", $qty, $cart_id, $uid) || true;
+            // Chỉ giữ 1 lần prepare, xóa dòng đầu thừa
             $stmt = $conn->prepare("UPDATE cart SET quantity = ? WHERE id = ? AND user_id = ?");
             $stmt->bind_param("iii", $qty, $cart_id, $uid);
             $stmt->execute();
@@ -40,6 +38,8 @@
         header('Location: cart.php');
         exit;
     }
+
+    include '../includes/navbar.php';
 
     // ── LẤY GIỎ HÀNG ────────────────────────────────────
     $cart_items = $conn->query("
@@ -137,7 +137,7 @@
             /* Cart item */
             .cart-item {
                 display: grid;
-                grid-template-columns: 80px 1fr auto;
+                grid-template-columns: 24px 80px 1fr auto;
                 gap: 16px;
                 align-items: center;
                 padding: 16px 24px;
@@ -384,65 +384,6 @@
     </head>
     <body>
 
-    <!-- ══ TOPBAR ══ -->
-    <div class="topbar">
-        <div class="topbar-inner">
-            <span class="topbar-item"><i class="bi bi-shield-check"></i> Hàng chính hãng 100%</span>
-            <span class="topbar-item"><i class="bi bi-truck"></i> Miễn phí ship đơn từ 500K</span>
-            <span class="topbar-item"><i class="bi bi-arrow-repeat"></i> Đổi trả trong 30 ngày</span>
-            <span class="topbar-item"><i class="bi bi-headset"></i> Hotline: 1800 2097</span>
-        </div>
-    </div>
-
-    <!-- ══ NAVBAR ══ -->
-    <nav class="navbar">
-        <div class="navbar-inner">
-            <a href="../index.php" class="navbar-brand">Phone<span>Store</span></a>
-            <div class="search-wrap">
-                <input type="text" id="searchInput" placeholder="Bạn muốn tìm gì hôm nay?"
-                    onkeydown="if(event.key==='Enter') window.location='products.php?q='+encodeURIComponent(this.value)">
-                <button class="search-btn" onclick="window.location='products.php?q='+encodeURIComponent(document.getElementById('searchInput').value)">
-                    <i class="bi bi-search"></i>
-                </button>
-            </div>
-            <ul class="nav-links">
-                <li><a href="products.php"><i class="bi bi-phone"></i> Sản phẩm</a></li>
-                <li><a href="contact.php"><i class="bi bi-headset"></i> Liên hệ</a></li>
-            </ul>
-            <a href="cart.php" class="cart-link" style="border-color:var(--primary);color:var(--primary)">
-                <i class="bi bi-bag-fill" style="font-size:1.1rem"></i> Giỏ hàng
-                <?php if ($cart_count > 0): ?>
-                    <span class="cart-badge"><?= $cart_count ?></span>
-                <?php endif; ?>
-            </a>
-            <?php if (isset($_SESSION['user_id'])): ?>
-            <div class="user-dropdown">
-                <button class="btn-login user-dropdown-btn">
-                    <i class="bi bi-person-circle"></i>
-                    <?= htmlspecialchars($_SESSION['full_name']) ?>
-                    <i class="bi bi-chevron-down" style="font-size:0.65rem"></i>
-                </button>
-                <div class="user-dropdown-menu">
-                    <div class="user-dropdown-header">
-                        <div class="user-avatar"><i class="bi bi-person-fill"></i></div>
-                        <div>
-                            <div class="user-name"><?= htmlspecialchars($_SESSION['full_name']) ?></div>
-                            <div class="user-role"><?= $_SESSION['role'] === 'admin' ? 'Quản trị viên' : 'Khách hàng' ?></div>
-                        </div>
-                    </div>
-                    <div class="user-dropdown-divider"></div>
-                    <a href="orders.php" class="user-dropdown-item"><i class="bi bi-bag-check"></i> Đơn hàng của tôi</a>
-                    <a href="profile.php" class="user-dropdown-item"><i class="bi bi-gear"></i> Cài đặt tài khoản</a>
-                    <div class="user-dropdown-divider"></div>
-                    <a href="../auth/logout.php" class="user-dropdown-item user-dropdown-logout"><i class="bi bi-box-arrow-right"></i> Đăng xuất</a>
-                </div>
-            </div>
-            <?php else: ?>
-                <a href="../auth/login.php" class="btn-login"><i class="bi bi-person"></i> Đăng nhập</a>
-            <?php endif; ?>
-        </div>
-    </nav>
-
     <!-- ══ BREADCRUMB ══ -->
     <div style="background:#fff;border-bottom:1px solid var(--border);padding:10px 0;">
         <div style="max-width:1280px;margin:0 auto;padding:0 24px;font-size:0.82rem;color:var(--gray);">
@@ -474,7 +415,13 @@
         <div>
             <div class="cart-card">
                 <div class="cart-header">
-                    <div class="cart-title">Giỏ hàng (<?= $total_items ?> sản phẩm)</div>
+                    <div style="display:flex;align-items:center;gap:12px">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+                            <input type="checkbox" id="checkAll" 
+                                style="width:18px;height:18px;accent-color:var(--primary);cursor:pointer">
+                            <span class="cart-title">Giỏ hàng (<?= $total_items ?> sản phẩm)</span>
+                        </label>
+                    </div>
                     <form method="POST" onsubmit="return confirm('Xóa toàn bộ giỏ hàng?')">
                         <button type="submit" name="clear_cart" class="btn-clear">
                             <i class="bi bi-trash3"></i> Xóa tất cả
@@ -484,6 +431,14 @@
 
                 <?php foreach ($items as $item): ?>
                 <div class="cart-item" id="item-<?= $item['cart_id'] ?>">
+
+                    <!-- Checkbox chọn -->
+                    <input type="checkbox" class="item-check"
+                        data-id="<?= $item['cart_id'] ?>"
+                        data-price="<?= $item['price'] ?>"
+                        data-qty="<?= $item['quantity'] ?>"
+                        style="width:18px;height:18px;accent-color:var(--primary);cursor:pointer;margin-right:4px"
+                        checked>
 
                     <!-- Ảnh -->
                     <a href="product_detail.php?id=<?= $item['product_id'] ?>">
@@ -554,36 +509,26 @@
             <div class="summary-card">
                 <div class="summary-title">Tóm tắt đơn hàng</div>
 
-                <?php if ($shipping_fee === 0): ?>
-                <div class="shipping-note">
-                    <i class="bi bi-truck"></i> Bạn được miễn phí vận chuyển!
-                </div>
-                <?php else: ?>
-                <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:10px 12px;font-size:0.78rem;color:#C2410C;font-weight:600;text-align:center;margin-bottom:16px;">
-                    <i class="bi bi-info-circle"></i>
-                    Mua thêm <?= number_format(500000 - $total_price, 0, ',', '.') ?>đ để được miễn phí ship!
-                </div>
-                <?php endif; ?>
+                <!-- Thông báo ship động -->
+                <div id="shippingNote" style="margin-bottom:16px"></div>
 
                 <div class="summary-row">
-                    <span class="label">Tạm tính (<?= $total_items ?> sp)</span>
-                    <span class="value"><?= number_format($total_price, 0, ',', '.') ?>đ</span>
+                    <span class="label">Đã chọn (<span id="selectedCount">0</span> sp)</span>
+                    <span class="value" id="selectedSubtotal">0đ</span>
                 </div>
                 <div class="summary-row">
                     <span class="label">Phí vận chuyển</span>
-                    <span class="value <?= $shipping_fee === 0 ? 'free' : '' ?>">
-                        <?= $shipping_fee === 0 ? 'Miễn phí' : number_format($shipping_fee,0,',','.').'đ' ?>
-                    </span>
+                    <span class="value" id="shippingFee">30.000đ</span>
                 </div>
 
                 <div class="summary-divider"></div>
 
                 <div class="summary-total">
                     <span class="label">Tổng cộng</span>
-                    <span class="value"><?= number_format($final_total, 0, ',', '.') ?>đ</span>
+                    <span class="value" id="grandTotal">0đ</span>
                 </div>
 
-                <a href="checkout.php" class="btn-checkout">
+                <a href="checkout.php" class="btn-checkout" id="btnCheckout">
                     <i class="bi bi-credit-card"></i> Tiến hành thanh toán
                 </a>
                 <a href="products.php" class="btn-continue">
@@ -595,35 +540,109 @@
         <?php endif; ?>
     </div>
 
-    <!-- ══ FOOTER ══ -->
-    <footer style="margin-top:48px">
-        <div class="container-main">
-            <div class="footer-bottom" style="border-top:none;padding-top:0">
-                <span>© 2024 PhoneStore. All rights reserved.</span>
-            </div>
-        </div>
-    </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    // ── Checkbox + tính tiền ────────────────────────────
+    const checkAll    = document.getElementById('checkAll');
+    const itemChecks  = document.querySelectorAll('.item-check');
+
+    function formatVND(n) {
+        return n.toLocaleString('vi-VN') + 'đ';
+    }
+
+    function recalculate() {
+        let subtotal = 0;
+        let count    = 0;
+        const selectedIds = [];
+
+        itemChecks.forEach(cb => {
+            if (cb.checked) {
+                const price = parseInt(cb.dataset.price);
+                const qty   = parseInt(document.getElementById('qty-' + cb.dataset.id)?.value || cb.dataset.qty);
+                subtotal   += price * qty;
+                count      += qty;
+                selectedIds.push(cb.dataset.id);
+            }
+        });
+
+        const shippingFee = subtotal >= 500000 ? 0 : (subtotal > 0 ? 30000 : 0);
+        const grandTotal  = subtotal + shippingFee;
+
+        // Cập nhật UI
+        document.getElementById('selectedCount').textContent   = count;
+        document.getElementById('selectedSubtotal').textContent = formatVND(subtotal);
+        document.getElementById('shippingFee').textContent     = shippingFee === 0 && subtotal > 0 ? 'Miễn phí' : formatVND(shippingFee);
+        document.getElementById('grandTotal').textContent      = formatVND(grandTotal);
+
+        // Thông báo ship
+        const noteEl = document.getElementById('shippingNote');
+        if (subtotal === 0) {
+            noteEl.innerHTML = '';
+        } else if (shippingFee === 0) {
+            noteEl.innerHTML = `<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:10px 12px;font-size:0.78rem;color:#16A34A;font-weight:600;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px">
+                <i class="bi bi-truck"></i> Bạn được miễn phí vận chuyển!
+            </div>`;
+        } else {
+            const remain = 500000 - subtotal;
+            noteEl.innerHTML = `<div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:10px 12px;font-size:0.78rem;color:#C2410C;font-weight:600;text-align:center">
+                <i class="bi bi-info-circle"></i> Mua thêm ${formatVND(remain)} để được miễn phí ship!
+            </div>`;
+        }
+
+        // Nút thanh toán — truyền id đã chọn qua URL
+        const btn = document.getElementById('btnCheckout');
+        if (count > 0) {
+            btn.href = 'checkout.php?items=' + selectedIds.join(',');
+            btn.style.opacity = '1';
+            btn.style.pointerEvents = 'auto';
+        } else {
+            btn.href = '#';
+            btn.style.opacity = '0.5';
+            btn.style.pointerEvents = 'none';
+        }
+
+        // Sync checkbox "chọn tất cả"
+        const checkedCount = document.querySelectorAll('.item-check:checked').length;
+        checkAll.checked       = checkedCount === itemChecks.length;
+        checkAll.indeterminate = checkedCount > 0 && checkedCount < itemChecks.length;
+    }
+
+    // Chọn tất cả
+    checkAll.addEventListener('change', function () {
+        itemChecks.forEach(cb => cb.checked = this.checked);
+        recalculate();
+    });
+
+    // Từng checkbox
+    itemChecks.forEach(cb => {
+        cb.addEventListener('change', recalculate);
+    });
+
+    // ── Nút +/- ────────────────────────────────────────
     function changeQty(btn, delta, maxStock) {
         const form  = btn.closest('form');
         const input = form.querySelector('input[name="quantity"]');
         let val = parseInt(input.value) + delta;
-        val = Math.max(1, Math.min(maxStock, val));
+
+        if (val < 1) val = 1;
+        if (val > maxStock) val = maxStock;
+
         input.value = val;
-        // Auto submit
-        form.querySelector('[name=update_qty]').click();
+
+        // Cập nhật dataset qty cho checkbox để recalculate đúng
+        const cartId = form.querySelector('[name="cart_id"]').value;
+        const cb = document.querySelector(`.item-check[data-id="${cartId}"]`);
+        if (cb) cb.dataset.qty = val;
+
+        recalculate();
+
+        // Submit cập nhật DB
+        form.querySelector('[name="update_qty"]').click();
     }
 
-    // User dropdown
-    document.querySelector('.user-dropdown-btn')?.addEventListener('click', function(e) {
-        e.stopPropagation();
-        document.querySelector('.user-dropdown-menu').classList.toggle('show');
-    });
-    document.addEventListener('click', function() {
-        document.querySelector('.user-dropdown-menu')?.classList.remove('show');
-    });
+    recalculate();
     </script>
+    <?php include '../includes/footer.php'; ?>
     </body>
 </html>

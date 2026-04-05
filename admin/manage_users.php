@@ -31,6 +31,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_role'])) {
     $success = 'Đã cập nhật quyền!';
 }
 
+// ── CẬP NHẬT USER ────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_user'])) {
+    $edit_id    = (int)$_POST['edit_id'];
+    $edit_name  = trim($_POST['edit_name']);
+    $edit_email = trim($_POST['edit_email']);
+    $edit_phone = trim($_POST['edit_phone']);
+    $edit_role  = in_array($_POST['edit_role'], ['customer','admin']) ? $_POST['edit_role'] : 'customer';
+    $edit_pass  = $_POST['edit_password'];
+
+    if (empty($edit_name) || empty($edit_email)) {
+        $error = 'Vui lòng điền đầy đủ họ tên và email!';
+    } else {
+        // Kiểm tra email trùng với user KHÁC
+        $stmt_check = $conn->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
+        $stmt_check->bind_param("si", $edit_email, $edit_id);
+        $stmt_check->execute();
+        if ($stmt_check->get_result()->num_rows > 0) {
+            $error = 'Email này đã được sử dụng bởi tài khoản khác!';
+        } else {
+            if (!empty($edit_pass)) {
+                // Cập nhật kèm mật khẩu mới
+                if (strlen($edit_pass) < 6) {
+                    $error = 'Mật khẩu phải có ít nhất 6 ký tự!';
+                } else {
+                    $hashed = password_hash($edit_pass, PASSWORD_DEFAULT);
+                    $stmt = $conn->prepare("UPDATE users SET full_name=?, email=?, phone=?, role=?, password=? WHERE id=?");
+                    $stmt->bind_param("sssssi", $edit_name, $edit_email, $edit_phone, $edit_role, $hashed, $edit_id);
+                    $stmt->execute();
+                    $success = 'Đã cập nhật tài khoản thành công!';
+                }
+            } else {
+                // Cập nhật KHÔNG đổi mật khẩu
+                $stmt = $conn->prepare("UPDATE users SET full_name=?, email=?, phone=?, role=? WHERE id=?");
+                $stmt->bind_param("ssssi", $edit_name, $edit_email, $edit_phone, $edit_role, $edit_id);
+                $stmt->execute();
+                $success = 'Đã cập nhật tài khoản thành công!';
+            }
+        }
+    }
+}
+
+// ── THÊM USER ────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_user'])) {
+    $new_name  = trim($conn->real_escape_string($_POST['new_name']));
+    $new_email = trim($conn->real_escape_string($_POST['new_email']));
+    $new_phone = trim($conn->real_escape_string($_POST['new_phone']));
+    $new_role  = in_array($_POST['new_role'], ['customer','admin']) ? $_POST['new_role'] : 'customer';
+    $new_pass  = $_POST['new_password'];
+
+    // Kiểm tra email đã tồn tại chưa
+    $check = $conn->query("SELECT id FROM users WHERE email = '$new_email'");
+    if ($check->num_rows > 0) {
+        $error = 'Email này đã được sử dụng!';
+    } elseif (strlen($new_pass) < 6) {
+        $error = 'Mật khẩu phải có ít nhất 6 ký tự!';
+    } elseif (empty($new_name) || empty($new_email)) {
+        $error = 'Vui lòng điền đầy đủ họ tên và email!';
+    } else {
+        $hashed = password_hash($new_pass, PASSWORD_DEFAULT);
+        $stmt = $conn->prepare("INSERT INTO users (full_name, email, phone, role, password, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
+        $stmt->bind_param("sssss", $new_name, $new_email, $new_phone, $new_role, $hashed);
+        $stmt->execute();
+        $success = "Đã thêm tài khoản \"$new_name\" thành công!";
+    }
+}
+
 // ── LỌC & TÌM KIẾM ──────────────────────────────────
 $search   = trim($_GET['q'] ?? '');
 $f_role   = $_GET['role'] ?? 'all';
@@ -167,37 +233,7 @@ $pending_orders  = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE status='
 </head>
 <body>
 
-<!-- ══ SIDEBAR ══ -->
-<aside class="sidebar">
-    <div class="sidebar-brand">
-        <a href="index.php">Phone<span>Store</span></a>
-        <div class="sidebar-brand-sub">Admin Panel</div>
-    </div>
-    <nav class="sidebar-nav">
-        <div class="sidebar-section">Tổng quan</div>
-        <a href="index.php" class="sidebar-item"><i class="bi bi-speedometer2"></i> Dashboard</a>
-        <div class="sidebar-section">Quản lý</div>
-        <a href="manage_products.php" class="sidebar-item"><i class="bi bi-phone"></i> Sản phẩm</a>
-        <a href="manage_orders.php" class="sidebar-item">
-            <i class="bi bi-bag-check"></i> Đơn hàng
-            <?php if ($pending_orders > 0): ?><span class="sidebar-badge"><?= $pending_orders ?></span><?php endif; ?>
-        </a>
-        <a href="manage_users.php" class="sidebar-item active"><i class="bi bi-people"></i> Khách hàng</a>
-        <a href="manage_reviews.php" class="sidebar-item"><i class="bi bi-star"></i> Đánh giá</a>
-        <div class="sidebar-section">Khác</div>
-        <a href="../index.php" class="sidebar-item" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Xem website</a>
-    </nav>
-    <div class="sidebar-footer">
-        <div class="sidebar-user">
-            <div class="sidebar-avatar"><?= mb_strtoupper(mb_substr($_SESSION['full_name'], 0, 1)) ?></div>
-            <div>
-                <div class="sidebar-user-name"><?= htmlspecialchars($_SESSION['full_name']) ?></div>
-                <div class="sidebar-user-role">Quản trị viên</div>
-            </div>
-        </div>
-        <a href="../auth/logout.php" class="btn-logout"><i class="bi bi-box-arrow-right"></i> Đăng xuất</a>
-    </div>
-</aside>
+<?php include 'sidebar.php'; ?>
 
 <!-- ══ MAIN ══ -->
 <div class="main-content">
@@ -266,6 +302,9 @@ $pending_orders  = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE status='
                     <i class="bi bi-x"></i> Xóa
                 </a>
                 <?php endif; ?>
+                <button type="button" class="btn-primary" data-bs-toggle="modal" data-bs-target="#modalAddUser" style="margin-left:auto">
+                    <i class="bi bi-person-plus"></i> Thêm tài khoản
+                </button>
             </div>
         </form>
 
@@ -328,17 +367,30 @@ $pending_orders  = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE status='
                                 </td>
                                 <td>
                                     <div style="display:flex;gap:5px">
-                                        <!-- Đổi quyền -->
                                         <?php if ($u['id'] !== $_SESSION['user_id']): ?>
+
+                                        <!-- Nút Sửa -->
+                                        <button type="button" class="btn-sm btn-role"
+                                                title="Chỉnh sửa"
+                                                onclick="openEditModal(
+                                                    <?= $u['id'] ?>,
+                                                    <?= htmlspecialchars(json_encode($u['full_name'])) ?>,
+                                                    <?= htmlspecialchars(json_encode($u['email'])) ?>,
+                                                    <?= htmlspecialchars(json_encode($u['phone'] ?? '')) ?>,
+                                                    '<?= $u['role'] ?>'
+                                                )">
+                                            <i class="bi bi-pencil-square"></i> Sửa
+                                        </button>
+
+                                        <!-- Nút Xóa -->
                                         <form method="POST" style="display:inline"
-                                              onsubmit="return confirm('Đổi quyền tài khoản này?')">
+                                            onsubmit="return confirm('Xóa tài khoản này? Dữ liệu đơn hàng vẫn còn.')">
                                             <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
-                                            <input type="hidden" name="current_role" value="<?= $u['role'] ?>">
-                                            <button type="submit" name="toggle_role" class="btn-sm btn-role"
-                                                    title="<?= $u['role']==='admin'?'Hạ xuống khách hàng':'Nâng lên admin' ?>">
-                                                <i class="bi bi-arrow-left-right"></i>
+                                            <button type="submit" name="delete_user" class="btn-sm btn-delete">
+                                                <i class="bi bi-trash3"></i>
                                             </button>
                                         </form>
+
                                         <!-- Xóa -->
                                         <form method="POST" style="display:inline"
                                               onsubmit="return confirm('Xóa tài khoản này? Dữ liệu đơn hàng vẫn còn.')">
@@ -386,6 +438,154 @@ $pending_orders  = $conn->query("SELECT COUNT(*) AS c FROM orders WHERE status='
 
     </div>
 </div>
+<!-- ══ MODAL THÊM USER ══ -->
+<div class="modal fade" id="modalAddUser" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius:16px;border:1px solid var(--border);font-family:var(--font)">
+            <div class="modal-header" style="border-bottom:1px solid var(--border);padding:18px 24px">
+                <h5 class="modal-title" style="font-weight:800;font-size:1rem">➕ Thêm tài khoản mới</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body" style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
 
+                    <div>
+                        <label style="font-size:0.78rem;font-weight:700;color:var(--gray);display:block;margin-bottom:5px">
+                            HỌ TÊN <span style="color:#EF4444">*</span>
+                        </label>
+                        <input type="text" name="new_name" class="search-input" style="width:100%"
+                               placeholder="Nguyễn Văn A" required>
+                    </div>
+
+                    <div>
+                        <label style="font-size:0.78rem;font-weight:700;color:var(--gray);display:block;margin-bottom:5px">
+                            EMAIL <span style="color:#EF4444">*</span>
+                        </label>
+                        <input type="email" name="new_email" class="search-input" style="width:100%"
+                               placeholder="example@email.com" required>
+                    </div>
+
+                    <div>
+                        <label style="font-size:0.78rem;font-weight:700;color:var(--gray);display:block;margin-bottom:5px">
+                            SỐ ĐIỆN THOẠI
+                        </label>
+                        <input type="text" name="new_phone" class="search-input" style="width:100%"
+                               placeholder="0901 234 567">
+                    </div>
+
+                    <div>
+                        <label style="font-size:0.78rem;font-weight:700;color:var(--gray);display:block;margin-bottom:5px">
+                            MẬT KHẨU <span style="color:#EF4444">*</span>
+                        </label>
+                        <input type="password" name="new_password" class="search-input" style="width:100%"
+                               placeholder="Tối thiểu 6 ký tự" required minlength="6">
+                    </div>
+
+                    <div>
+                        <label style="font-size:0.78rem;font-weight:700;color:var(--gray);display:block;margin-bottom:5px">
+                            PHÂN QUYỀN
+                        </label>
+                        <select name="new_role" class="search-input" style="width:100%">
+                            <option value="customer">👤 Khách hàng</option>
+                            <option value="admin">🛡️ Quản trị viên</option>
+                        </select>
+                    </div>
+
+                </div>
+                <div class="modal-footer" style="border-top:1px solid var(--border);padding:14px 24px;gap:8px">
+                    <button type="button" class="btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" name="add_user" class="btn-primary">
+                        <i class="bi bi-person-check"></i> Tạo tài khoản
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<!-- ══ MODAL CHỈNH SỬA USER ══ -->
+<div class="modal fade" id="modalEditUser" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius:16px;border:1px solid var(--border);font-family:var(--font)">
+            <div class="modal-header" style="border-bottom:1px solid var(--border);padding:18px 24px">
+                <h5 class="modal-title" style="font-weight:800;font-size:1rem">✏️ Chỉnh sửa tài khoản</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="edit_id" id="edit_id">
+                <div class="modal-body" style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+
+                    <div>
+                        <label style="font-size:0.78rem;font-weight:700;color:var(--gray);display:block;margin-bottom:5px">
+                            HỌ TÊN <span style="color:#EF4444">*</span>
+                        </label>
+                        <input type="text" name="edit_name" id="edit_name"
+                               class="search-input" style="width:100%" required>
+                    </div>
+
+                    <div>
+                        <label style="font-size:0.78rem;font-weight:700;color:var(--gray);display:block;margin-bottom:5px">
+                            EMAIL <span style="color:#EF4444">*</span>
+                        </label>
+                        <input type="email" name="edit_email" id="edit_email"
+                               class="search-input" style="width:100%" required>
+                    </div>
+
+                    <div>
+                        <label style="font-size:0.78rem;font-weight:700;color:var(--gray);display:block;margin-bottom:5px">
+                            SỐ ĐIỆN THOẠI
+                        </label>
+                        <input type="text" name="edit_phone" id="edit_phone"
+                               class="search-input" style="width:100%">
+                    </div>
+
+                    <div>
+                        <label style="font-size:0.78rem;font-weight:700;color:var(--gray);display:block;margin-bottom:5px">
+                            MẬT KHẨU MỚI
+                            <span style="font-weight:400;color:var(--gray)">(để trống nếu không đổi)</span>
+                        </label>
+                        <input type="password" name="edit_password"
+                               class="search-input" style="width:100%"
+                               placeholder="Tối thiểu 6 ký tự" minlength="6">
+                    </div>
+
+                    <div>
+                        <label style="font-size:0.78rem;font-weight:700;color:var(--gray);display:block;margin-bottom:5px">
+                            PHÂN QUYỀN
+                        </label>
+                        <select name="edit_role" id="edit_role" class="search-input" style="width:100%">
+                            <option value="customer">👤 Khách hàng</option>
+                            <option value="admin">🛡️ Quản trị viên</option>
+                        </select>
+                    </div>
+
+                </div>
+                <div class="modal-footer" style="border-top:1px solid var(--border);padding:14px 24px;gap:8px">
+                    <button type="button" class="btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" name="edit_user" class="btn-primary">
+                        <i class="bi bi-check-lg"></i> Lưu thay đổi
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function openEditModal(id, name, email, phone, role) {
+    document.getElementById('edit_id').value    = id;
+    document.getElementById('edit_name').value  = name;
+    document.getElementById('edit_email').value = email;
+    document.getElementById('edit_phone').value = phone;
+    document.getElementById('edit_role').value  = role;
+
+    document.querySelector('[name="edit_password"]').value = '';
+
+    new bootstrap.Modal(document.getElementById('modalEditUser')).show();
+}
+</script>
+
+<!-- Bootstrap JS (cần cho modal) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+
 </html>

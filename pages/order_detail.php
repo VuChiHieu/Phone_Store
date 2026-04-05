@@ -1,13 +1,14 @@
 <?php
 session_start();
 require_once '../config.php';
+include '../includes/navbar.php';
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../auth/login.php');
     exit;
 }
 
-$uid      = (int) $_SESSION['user_id']; // ✅ ép kiểu int
+$uid      = (int) $_SESSION['user_id']; 
 $order_id = (int) ($_GET['id'] ?? 0);
 
 if (!$order_id) {
@@ -15,7 +16,6 @@ if (!$order_id) {
     exit;
 }
 
-// ✅ Prepared statement — tránh SQL Injection
 $stmt_order = $conn->prepare("SELECT o.* FROM orders o WHERE o.id = ? AND o.user_id = ?");
 $stmt_order->bind_param("ii", $order_id, $uid);
 $stmt_order->execute();
@@ -183,60 +183,6 @@ $payment_code_display = !empty($order['payment_code']) ? $order['payment_code'] 
 </head>
 <body>
 
-<!-- TOPBAR -->
-<div class="topbar">
-    <div class="topbar-inner">
-        <span class="topbar-item"><i class="bi bi-shield-check"></i> Hàng chính hãng 100%</span>
-        <span class="topbar-item"><i class="bi bi-truck"></i> Miễn phí ship đơn từ 500K</span>
-        <span class="topbar-item"><i class="bi bi-headset"></i> Hotline: 1800 2097</span>
-    </div>
-</div>
-
-<!-- NAVBAR -->
-<nav class="navbar">
-    <div class="navbar-inner">
-        <a href="../index.php" class="navbar-brand">Phone<span>Store</span></a>
-        <div class="search-wrap">
-            <input type="text" id="searchInput" placeholder="Bạn muốn tìm gì hôm nay?"
-                   onkeydown="if(event.key==='Enter') window.location='products.php?q='+encodeURIComponent(this.value)">
-            <button class="search-btn" onclick="window.location='products.php?q='+encodeURIComponent(document.getElementById('searchInput').value)">
-                <i class="bi bi-search"></i>
-            </button>
-        </div>
-        <ul class="nav-links">
-            <li><a href="products.php"><i class="bi bi-phone"></i> Sản phẩm</a></li>
-            <li><a href="contact.php"><i class="bi bi-headset"></i> Liên hệ</a></li>
-        </ul>
-        <a href="cart.php" class="cart-link">
-            <i class="bi bi-bag" style="font-size:1.1rem"></i> Giỏ hàng
-            <?php if ($cart_count > 0): ?><span class="cart-badge"><?= $cart_count ?></span><?php endif; ?>
-        </a>
-        <div class="user-dropdown">
-            <button class="btn-login user-dropdown-btn">
-                <i class="bi bi-person-circle"></i>
-                <?= htmlspecialchars($_SESSION['full_name']) ?>
-                <i class="bi bi-chevron-down" style="font-size:0.65rem"></i>
-            </button>
-            <div class="user-dropdown-menu">
-                <div class="user-dropdown-header">
-                    <div class="user-avatar"><i class="bi bi-person-fill"></i></div>
-                    <div>
-                        <div class="user-name"><?= htmlspecialchars($_SESSION['full_name']) ?></div>
-                        <div class="user-role"><?= $_SESSION['role']==='admin'?'Quản trị viên':'Khách hàng' ?></div>
-                    </div>
-                </div>
-                <div class="user-dropdown-divider"></div>
-                <?php if ($_SESSION['role']==='admin'): ?>
-                <a href="../admin/index.php" class="user-dropdown-item"><i class="bi bi-speedometer2"></i> Trang quản trị</a>
-                <?php endif; ?>
-                <a href="orders.php" class="user-dropdown-item" style="color:var(--primary)"><i class="bi bi-bag-check"></i> Đơn hàng của tôi</a>
-                <a href="profile.php" class="user-dropdown-item"><i class="bi bi-gear"></i> Cài đặt tài khoản</a>
-                <div class="user-dropdown-divider"></div>
-                <a href="../auth/logout.php" class="user-dropdown-item user-dropdown-logout"><i class="bi bi-box-arrow-right"></i> Đăng xuất</a>
-            </div>
-        </div>
-    </div>
-</nav>
 
 <!-- BREADCRUMB -->
 <div class="bc">
@@ -454,21 +400,6 @@ $payment_code_display = !empty($order['payment_code']) ? $order['payment_code'] 
 
     </div>
 </div>
-
-<footer style="margin-top:48px">
-    <div class="container-main">
-        <div class="footer-bottom" style="border-top:none;padding-top:0">
-            <span>© 2024 PhoneStore. All rights reserved.</span>
-        </div>
-    </div>
-</footer>
-
-<script>
-document.querySelector('.user-dropdown-btn')?.addEventListener('click', function(e) {
-    e.stopPropagation();
-    document.querySelector('.user-dropdown-menu').classList.toggle('show');
-});
-document.addEventListener('click', () => document.querySelector('.user-dropdown-menu')?.classList.remove('show'));
-</script>
+<?php include '../includes/footer.php'; ?>
 </body>
 </html>

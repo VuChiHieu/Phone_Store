@@ -44,6 +44,69 @@ if (empty($items)) {
 $shipping_fee = $total_price >= 500000 ? 0 : 30000;
 $final_total  = $total_price + $shipping_fee;
 
+// ── Helper: tạo HTML QR payment box ──────────────────
+function qr_payment_html($type, $amount, $color, $bg, $logo_url, $name, $hotline) {
+    $amount_fmt = number_format($amount, 0, ',', '.');
+    $qr_content = urlencode("PHONESTORE|{$type}|{$amount}|THANHTOAN");
+    $qr_url     = "https://api.qrserver.com/v1/create-qr-code/?size=160x160&data={$qr_content}&color=" . ltrim($color, '#') . "&bgcolor=ffffff&margin=10";
+
+    return "
+    <div style='margin-top:14px;padding-top:14px;border-top:1px solid #E5E7EB;'>
+        <div style='background:{$bg};border:1.5px solid {$color}30;border-radius:12px;padding:20px;text-align:center;'>
+
+            <div style='font-weight:800;color:{$color};margin-bottom:4px;font-size:0.95rem;display:flex;align-items:center;justify-content:center;gap:8px'>
+                <img src='{$logo_url}' style='width:22px;height:22px;object-fit:contain;border-radius:4px'>
+                Thanh toán qua {$name}
+            </div>
+            <div style='font-size:0.78rem;color:#6B7280;margin-bottom:16px'>
+                Quét mã QR bên dưới để thanh toán
+            </div>
+
+            <div style='background:#fff;border:2px solid {$color};border-radius:10px;padding:10px 20px;display:inline-block;margin-bottom:16px;'>
+                <div style='font-size:0.7rem;color:#6B7280;font-weight:600;margin-bottom:2px'>SỐ TIỀN THANH TOÁN</div>
+                <div style='font-size:1.5rem;font-weight:800;color:{$color}'>{$amount_fmt}đ</div>
+            </div>
+
+            <!-- QR Code + Logo overlay -->
+            <div style='position:relative;display:inline-block;'>
+                <img src='{$qr_url}'
+                     style='width:160px;height:160px;border-radius:12px;border:3px solid {$color};display:block;'
+                     alt='QR {$name}'>
+                <!-- Logo thật đè giữa QR -->
+                <div style='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                            background:#fff;border-radius:8px;padding:5px;
+                            box-shadow:0 2px 8px rgba(0,0,0,0.15);
+                            width:36px;height:36px;
+                            display:flex;align-items:center;justify-content:center;'>
+                    <img src='{$logo_url}'
+                         style='width:26px;height:26px;object-fit:contain;border-radius:4px'>
+                </div>
+            </div>
+
+            <!-- Countdown -->
+            <div id='countdown-{$type}' style='margin-top:14px;display:none;'>
+                <div style='background:#fff;border-radius:8px;padding:10px;border:1px solid {$color}40;'>
+                    <div style='font-size:0.78rem;color:#6B7280;margin-bottom:4px'>
+                        ✨ Hệ thống phát hiện QR đã được quét
+                    </div>
+                    <div style='font-size:0.82rem;font-weight:700;color:{$color}' id='countdown-text-{$type}'>
+                        Xác nhận thanh toán sau 5 giây...
+                    </div>
+                    <div style='margin-top:8px;background:#E5E7EB;border-radius:99px;height:6px;overflow:hidden'>
+                        <div id='countdown-bar-{$type}'
+                             style='height:100%;width:100%;background:{$color};border-radius:99px;
+                                    transition:width linear'></div>
+                    </div>
+                </div>
+            </div>
+
+            <div style='margin-top:12px;font-size:0.75rem;color:#9CA3AF;'>
+                Hotline hỗ trợ: <strong>{$hotline}</strong>
+            </div>
+        </div>
+    </div>";
+}
+
 // ── XỬ LÝ ĐẶT HÀNG ──────────────────────────────────
 $order_success = false;
 $order_id      = null;
@@ -57,14 +120,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $note           = trim($_POST['note'] ?? '');
     $payment_method = $_POST['payment_method'] ?? 'cod';
 
-    // ✅ FIX: Validate chặt hơn
     if (empty($full_name))                          $errors[] = 'Vui lòng nhập họ tên!';
     if (empty($phone))                              $errors[] = 'Vui lòng nhập số điện thoại!';
     if (!preg_match('/^[0-9]{9,11}$/', $phone))     $errors[] = 'Số điện thoại không hợp lệ!';
     if (empty($address))                            $errors[] = 'Vui lòng nhập địa chỉ!';
-    if (!in_array($payment_method, ['cod', 'bank_transfer'])) $errors[] = 'Phương thức thanh toán không hợp lệ!';
+    if (!in_array($payment_method, ['cod', 'bank_transfer', 'momo', 'zalopay', 'vnpay'])) $errors[] = 'Phương thức thanh toán không hợp lệ!';
 
-    // ✅ FIX: Kiểm tra stock trước khi tạo đơn
     foreach ($items as $item) {
         if ($item['quantity'] > $item['stock']) {
             $errors[] = "Sản phẩm <b>{$item['name']}</b> không đủ hàng trong kho!";
@@ -74,13 +135,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
         $payment_code = 'DH' . date('YmdHis') . rand(100, 999);
 
-        // ✅ FIX logic thanh toán:
-        // - bank_transfer: user đã thanh toán trong luồng fake payment → paid
-        // - cod: thanh toán khi nhận hàng → unpaid cho đến khi delivered
-        if ($payment_method === 'bank_transfer') {
+        $online_methods = ['bank_transfer', 'momo', 'zalopay', 'vnpay'];
+        if (in_array($payment_method, $online_methods)) {
             $payment_status = 'paid';
             $paid_at        = date('Y-m-d H:i:s');
         } else {
+            // COD → unpaid đến khi giao hàng
             $payment_status = 'unpaid';
             $paid_at        = null;
         }
@@ -103,8 +163,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ins->execute();
         }
 
-        // ✅ FIX: Lưu thông tin vào session trước khi xóa giỏ hàng
-        // tránh lỗi khi user F5 lại trang success (POST data mất)
         $_SESSION['last_order'] = [
             'payment_code'   => $payment_code,
             'full_name'      => $full_name,
@@ -748,7 +806,14 @@ if ($order_success && $last_order) {
                 <span class="val">
                     <?php
                     $pm = $last_order['payment_method'] ?? $_POST['payment_method'] ?? 'cod';
-                    echo $pm === 'cod' ? '💵 Thanh toán khi nhận hàng' : '🏦 Chuyển khoản ngân hàng';
+                    $pm_labels = [
+                        'cod'           => '💵 Thanh toán khi nhận hàng',
+                        'bank_transfer' => '🏦 Chuyển khoản ngân hàng',
+                        'momo'          => '📱 Ví MoMo',
+                        'zalopay'       => '💙 ZaloPay',
+                        'vnpay'         => '🏦 VNPay',
+                    ];
+                    echo $pm_labels[$pm] ?? '💵 Thanh toán khi nhận hàng';
                     ?>
                 </span>
             </div>
@@ -761,10 +826,11 @@ if ($order_success && $last_order) {
         </div>
 
         <?php
-        $pm = $last_order['payment_method'] ?? $_POST['payment_method'] ?? 'cod';
-        if ($pm === 'bank_transfer'):
+            $pm = $last_order['payment_method'] ?? $_POST['payment_method'] ?? 'cod';
+            $online_methods_display = ['bank_transfer', 'momo', 'zalopay', 'vnpay'];
+            if (in_array($pm, $online_methods_display)):
         ?>
-        <!-- ✅ bank_transfer: đã thanh toán xong trong luồng → chỉ hiện badge xác nhận -->
+       
         <div class="bank-success-box" style="text-align:center;">
             <div style="font-size:2.2rem;margin-bottom:10px;">✅</div>
             <div style="font-weight:800;font-size:1rem;color:#16A34A;margin-bottom:6px;">
@@ -915,10 +981,15 @@ if ($order_success && $last_order) {
                         <i class="bi bi-credit-card-fill"></i> Phương thức thanh toán
                     </div>
                     <div class="form-card-body">
+
+                        <!-- COD -->
                         <label class="payment-option selected" id="opt-cod" onclick="selectPayment('cod')">
                             <div class="payment-option-header">
                                 <input type="radio" name="payment_method" value="cod" checked>
-                                <div class="payment-option-icon" style="background:#FFF7ED;">💵</div>
+                                <div class="payment-option-icon" style="background:#FFF7ED;">
+                                    <img src="https://cdn-icons-png.flaticon.com/512/2489/2489756.png"
+                                        style="width:26px;height:26px;object-fit:contain">
+                                </div>
                                 <div>
                                     <div class="payment-option-title">Thanh toán khi nhận hàng (COD)</div>
                                     <div class="payment-option-desc">Trả tiền mặt khi shipper giao hàng</div>
@@ -926,16 +997,89 @@ if ($order_success && $last_order) {
                             </div>
                         </label>
 
-                        <label class="payment-option" id="opt-bank" onclick="selectPayment('bank_transfer')">
+                        <!-- MOMO -->
+                        <label class="payment-option" id="opt-momo" onclick="selectPayment('momo')">
                             <div class="payment-option-header">
-                                <input type="radio" name="payment_method" value="bank_transfer">
-                                <div class="payment-option-icon" style="background:#EEF4FF;">🏦</div>
+                                <input type="radio" name="payment_method" value="momo">
+                                <div class="payment-option-icon" style="background:#FCE4F3;">
+                                    <img src="https://developers.momo.vn/v3/assets/images/MOMO-Logo-App-6262c3743a290ef02396a24ea2b66c35.png"
+                                        style="width:26px;height:26px;object-fit:contain">
+                                </div>
                                 <div>
-                                    <div class="payment-option-title">Chuyển khoản ngân hàng</div>
-                                    <div class="payment-option-desc">Chuyển khoản qua ngân hàng hoặc QR</div>
+                                    <div class="payment-option-title">Ví MoMo</div>
+                                    <div class="payment-option-desc">Quét mã QR bằng app MoMo</div>
                                 </div>
                             </div>
-                            <div class="bank-details" id="bankDetails">
+                            <div class="bank-details" id="details-momo">
+                                <?php echo qr_payment_html(
+                                    'momo', $final_total,
+                                    '#AE2D68', '#FCE4F3',
+                                    'https://developers.momo.vn/v3/assets/images/MOMO-Logo-App-6262c3743a290ef02396a24ea2b66c35.png',
+                                    'MoMo', '0901 234 567'
+                                ); ?>
+                            </div>
+                        </label>
+
+                        <!-- ZALOPAY -->
+                        <label class="payment-option" id="opt-zalopay" onclick="selectPayment('zalopay')">
+                            <div class="payment-option-header">
+                                <input type="radio" name="payment_method" value="zalopay">
+                                <div class="payment-option-icon" style="background:#E6F4FF;">
+                                    <img src="https://cdn.haitrieu.com/wp-content/uploads/2022/10/Logo-ZaloPay-Square.png"
+                                        style="width:26px;height:26px;object-fit:contain">
+                                </div>
+                                <div>
+                                    <div class="payment-option-title">ZaloPay</div>
+                                    <div class="payment-option-desc">Quét mã QR bằng app ZaloPay hoặc Zalo</div>
+                                </div>
+                            </div>
+                            <div class="bank-details" id="details-zalopay">
+                                <?php echo qr_payment_html(
+                                    'zalopay', $final_total,
+                                    '#0068FF', '#E6F4FF',
+                                    'https://cdn.haitrieu.com/wp-content/uploads/2022/10/Logo-ZaloPay-Square.png',
+                                    'ZaloPay', '1800 5555'
+                                ); ?>
+                            </div>
+                        </label>
+
+                        <!-- VNPAY -->
+                        <label class="payment-option" id="opt-vnpay" onclick="selectPayment('vnpay')">
+                            <div class="payment-option-header">
+                                <input type="radio" name="payment_method" value="vnpay">
+                                <div class="payment-option-icon" style="background:#FFF0F0;">
+                                    <img src="https://cdn.haitrieu.com/wp-content/uploads/2022/10/Logo-VNPAY-QR.png"
+                                        style="width:26px;height:26px;object-fit:contain">
+                                </div>
+                                <div>
+                                    <div class="payment-option-title">VNPay</div>
+                                    <div class="payment-option-desc">Quét mã QR bằng app ngân hàng bất kỳ</div>
+                                </div>
+                            </div>
+                            <div class="bank-details" id="details-vnpay">
+                                <?php echo qr_payment_html(
+                                    'vnpay', $final_total,
+                                    '#f69595ff', '#ffffffff',
+                                    'https://cdn.haitrieu.com/wp-content/uploads/2022/10/Logo-VNPAY-QR.png',
+                                    'VNPay', '1900 5555'
+                                ); ?>
+                            </div>
+                        </label>
+
+                        <!-- BANK TRANSFER -->
+                        <label class="payment-option" id="opt-bank_transfer" onclick="selectPayment('bank_transfer')">
+                            <div class="payment-option-header">
+                                <input type="radio" name="payment_method" value="bank_transfer">
+                                <div class="payment-option-icon" style="background:#EEF4FF;">
+                                    <img src="https://cdn-icons-png.flaticon.com/512/2830/2830284.png"
+                                        style="width:26px;height:26px;object-fit:contain">
+                                </div>
+                                <div>
+                                    <div class="payment-option-title">Chuyển khoản ngân hàng</div>
+                                    <div class="payment-option-desc">Chuyển khoản thủ công qua STK</div>
+                                </div>
+                            </div>
+                            <div class="bank-details" id="details-bank_transfer">
                                 <div class="bank-info-box">
                                     <div class="bank-row">
                                         <span class="bk-label">Ngân hàng</span>
@@ -953,18 +1097,10 @@ if ($order_success && $last_order) {
                                         <span class="bk-label">Số tiền</span>
                                         <span class="bk-value highlight"><?= number_format($final_total,0,',','.') ?>đ</span>
                                     </div>
-                                    <div class="bank-row">
-                                        <span class="bk-label">Nội dung CK</span>
-                                        <span class="bk-value" style="color:var(--gray);font-style:italic">
-                                            Tự động tạo sau khi đặt hàng
-                                        </span>
-                                    </div>
-                                    <div class="qr-placeholder">
-                                        <div><div style="font-size:2rem">📱</div>QR Code</div>
-                                    </div>
                                 </div>
                             </div>
                         </label>
+
                     </div>
                 </div>
             </div>
@@ -1024,149 +1160,179 @@ if ($order_success && $last_order) {
     </div>
     <?php endif; ?>
 
-    <!-- ══ FOOTER ══ -->
-    <footer style="margin-top:48px">
-        <div class="container-main">
-            <div class="footer-bottom" style="border-top:none;padding-top:0">
-                <span>© 2024 PhoneStore. All rights reserved.</span>
-            </div>
-        </div>
-    </footer>
-
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    // ══ PAYMENT OPTION TOGGLE ══
+    const ONLINE_METHODS = ['momo', 'zalopay', 'vnpay', 'bank_transfer'];
+    let countdownTimer = null;
+    let currentMethod  = 'cod';
+
+    // ── Chọn phương thức thanh toán ──────────────────────
     function selectPayment(method) {
+        currentMethod = method;
+
+        // Reset tất cả option
         document.querySelectorAll('.payment-option').forEach(el => el.classList.remove('selected'));
-        document.getElementById('opt-' + (method === 'cod' ? 'cod' : 'bank')).classList.add('selected');
-        document.querySelectorAll('input[name="payment_method"]').forEach(r => {
-            r.checked = r.value === method;
-        });
-        const bankDetails = document.getElementById('bankDetails');
-        if (bankDetails) {
-            bankDetails.classList.toggle('show', method === 'bank_transfer');
+        document.querySelectorAll('.bank-details').forEach(el => el.classList.remove('show'));
+        document.querySelectorAll('input[name="payment_method"]').forEach(r => r.checked = r.value === method);
+
+        // Active option được chọn
+        document.getElementById('opt-' + method)?.classList.add('selected');
+
+        // Hiện chi tiết
+        const details = document.getElementById('details-' + method);
+        if (details) details.classList.add('show');
+
+        // Reset countdown nếu đang chạy
+        clearCountdown();
+
+        // Nếu là online method → bắt đầu đếm ngược sau 2s (giả lập "phát hiện quét QR")
+        if (['momo', 'zalopay', 'vnpay'].includes(method)) {
+            setTimeout(() => startCountdown(method), 2000);
         }
     }
 
-    // ══ FAKE PAYMENT PROCESSING ══
-    const TOTAL_DURATION = 10000; // 10 giây
+    // ── Countdown tự động sau khi "quét QR" ──────────────
+    function startCountdown(method) {
+        const countdownEl = document.getElementById('countdown-' + method);
+        const textEl      = document.getElementById('countdown-text-' + method);
+        const barEl       = document.getElementById('countdown-bar-' + method);
+        if (!countdownEl) return;
 
-    // Kịch bản các bước: [thời điểm bắt đầu ms, tên step id, text title, text sub]
+        countdownEl.style.display = 'block';
+
+        let secs = 5;
+        barEl.style.transition = 'none';
+        barEl.style.width = '100%';
+
+        // Kích hoạt transition sau 1 frame
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                barEl.style.transition = `width ${secs}s linear`;
+                barEl.style.width = '0%';
+            });
+        });
+
+        countdownTimer = setInterval(() => {
+            secs--;
+            if (secs > 0) {
+                textEl.textContent = `Xác nhận thanh toán sau ${secs} giây...`;
+            } else {
+                clearInterval(countdownTimer);
+                textEl.textContent = '✅ Đã xác nhận! Đang đặt hàng...';
+                // Submit form
+                setTimeout(() => document.getElementById('checkoutForm').submit(), 800);
+            }
+        }, 1000);
+    }
+
+    function clearCountdown() {
+        if (countdownTimer) {
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+        }
+        // Ẩn tất cả countdown
+        document.querySelectorAll('[id^="countdown-"]').forEach(el => el.style.display = 'none');
+    }
+
+    // ── Submit form ───────────────────────────────────────
+    document.getElementById('checkoutForm')?.addEventListener('submit', function(e) {
+        const fullName = document.querySelector('input[name="full_name"]').value.trim();
+        const phone    = document.querySelector('input[name="phone"]').value.trim();
+        const address  = document.querySelector('input[name="address"]').value.trim();
+
+        // Thiếu thông tin → để server validate
+        if (!fullName || !phone || !address) return true;
+
+        // Online method có countdown đang chạy → chặn submit thủ công
+        // (form sẽ tự submit khi countdown xong)
+        if (['momo', 'zalopay', 'vnpay'].includes(currentMethod)) {
+            e.preventDefault();
+            // Nếu chưa có countdown → bắt đầu ngay
+            if (!countdownTimer) startCountdown(currentMethod);
+            return;
+        }
+
+        // COD hoặc bank_transfer → fake payment overlay như cũ
+        if (currentMethod === 'bank_transfer') {
+            e.preventDefault();
+            document.getElementById('btnOrder').disabled = true;
+            startFakePayment();
+            return;
+        }
+
+        // COD → submit thẳng
+    });
+
+    // ── Fake payment overlay (cho bank_transfer) ──────────
+    const TOTAL_DURATION = 8000;
     const STEPS = [
         { at: 0,    stepId: 'pstep1', title: 'Đang xử lý thanh toán...', sub: 'Vui lòng không tắt trình duyệt' },
-        { at: 2500, stepId: 'pstep2', title: 'Kết nối cổng thanh toán...', sub: 'Đang kết nối tới máy chủ ngân hàng' },
-        { at: 5500, stepId: 'pstep3', title: 'Đang xử lý giao dịch...', sub: 'Hệ thống đang xác minh thông tin' },
-        { at: 8000, stepId: 'pstep4', title: 'Hoàn tất đơn hàng...', sub: 'Đang lưu thông tin đơn hàng' },
+        { at: 2000, stepId: 'pstep2', title: 'Kết nối cổng thanh toán...', sub: 'Đang kết nối tới máy chủ ngân hàng' },
+        { at: 4500, stepId: 'pstep3', title: 'Đang xử lý giao dịch...', sub: 'Hệ thống đang xác minh thông tin' },
+        { at: 6500, stepId: 'pstep4', title: 'Hoàn tất đơn hàng...', sub: 'Đang lưu thông tin đơn hàng' },
     ];
-
-    let currentStepIdx = -1;
 
     function setStepDone(id) {
         const el = document.getElementById(id);
+        if (!el) return;
         el.classList.remove('active');
         el.classList.add('done');
-        // Đổi dot thành dấu check
         el.querySelector('.pstep-dot').textContent = '✓';
     }
-
     function setStepActive(id) {
-        const el = document.getElementById(id);
-        el.classList.add('active');
+        document.getElementById(id)?.classList.add('active');
     }
 
     function startFakePayment() {
-        const overlay  = document.getElementById('paymentOverlay');
-        const bar      = document.getElementById('pmBar');
-        const label    = document.getElementById('pmLabel');
-        const title    = document.getElementById('pmTitle');
-        const sub      = document.getElementById('pmSub');
-        const spinner  = document.getElementById('pmSpinner');
-        const check    = document.getElementById('pmCheck');
+        const overlay = document.getElementById('paymentOverlay');
+        const bar     = document.getElementById('pmBar');
+        const label   = document.getElementById('pmLabel');
+        const title   = document.getElementById('pmTitle');
+        const sub     = document.getElementById('pmSub');
+        const spinner = document.getElementById('pmSpinner');
+        const check   = document.getElementById('pmCheck');
+        if (!overlay) return;
 
         overlay.classList.add('show');
-
         const startTime = Date.now();
 
-        // Progress bar & label cập nhật mỗi 100ms
         const progressInterval = setInterval(() => {
-            const elapsed  = Date.now() - startTime;
-            const progress = Math.min((elapsed / TOTAL_DURATION) * 100, 100);
+            const progress = Math.min(((Date.now() - startTime) / TOTAL_DURATION) * 100, 100);
             bar.style.width   = progress + '%';
             label.textContent = Math.floor(progress) + '%';
         }, 100);
 
-        // Kích hoạt từng step theo timeline
         STEPS.forEach((step, idx) => {
             setTimeout(() => {
-                // Done bước trước
-                if (idx > 0) setStepDone(STEPS[idx - 1].stepId);
-                // Active bước hiện tại
+                if (idx > 0) setStepDone(STEPS[idx-1].stepId);
                 setStepActive(step.stepId);
                 title.textContent = step.title;
                 sub.textContent   = step.sub;
             }, step.at);
         });
 
-        // Kết thúc sau TOTAL_DURATION
         setTimeout(() => {
             clearInterval(progressInterval);
             bar.style.width   = '100%';
             label.textContent = '100%';
-
-            // Done bước cuối
-            setStepDone(STEPS[STEPS.length - 1].stepId);
-
-            // Đổi spinner → check
+            setStepDone(STEPS[STEPS.length-1].stepId);
             spinner.style.display = 'none';
             check.classList.add('show');
             title.textContent = 'Thanh toán thành công!';
             sub.textContent   = 'Đang chuyển đến trang xác nhận...';
-
-            // Submit form thật sau 1.2s (để user thấy trạng thái thành công)
-            setTimeout(() => {
-                document.getElementById('checkoutForm').submit();
-            }, 1200);
-
+            setTimeout(() => document.getElementById('checkoutForm').submit(), 1200);
         }, TOTAL_DURATION);
     }
 
-    // Bắt sự kiện submit form → chặn lại, chạy fake payment trước
-    document.getElementById('checkoutForm')?.addEventListener('submit', function(e) {
-        // Validate cơ bản trước khi hiện overlay
-        const fullName = document.querySelector('input[name="full_name"]').value.trim();
-        const phone    = document.querySelector('input[name="phone"]').value.trim();
-        const address  = document.querySelector('input[name="address"]').value.trim();
-
-        if (!fullName || !phone || !address) {
-            // Để form submit tự nhiên để server validate và hiện lỗi
-            return true;
-        }
-
-        // ✅ FIX: chỉ chạy fake payment khi chuyển khoản
-        // COD không cần xác thực thanh toán → submit thẳng
-        const paymentMethod = document.querySelector('input[name="payment_method"]:checked')?.value;
-        if (paymentMethod !== 'bank_transfer') {
-            return true; // COD: submit bình thường
-        }
-
-        // Chặn submit thật (chỉ với bank_transfer)
-        e.preventDefault();
-
-        // Disable nút để tránh bấm 2 lần
-        document.getElementById('btnOrder').disabled = true;
-
-        // Chạy fake payment
-        startFakePayment();
-    });
-
-    // ══ USER DROPDOWN ══
+    // ── User dropdown ─────────────────────────────────────
     document.querySelector('.user-dropdown-btn')?.addEventListener('click', function(e) {
         e.stopPropagation();
-        document.querySelector('.user-dropdown-menu').classList.toggle('show');
+        document.querySelector('.user-dropdown-menu')?.classList.toggle('show');
     });
     document.addEventListener('click', function() {
         document.querySelector('.user-dropdown-menu')?.classList.remove('show');
     });
     </script>
+    <?php include '../includes/footer.php'; ?>
     </body>
 </html>

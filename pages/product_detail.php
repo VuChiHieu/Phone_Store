@@ -1,7 +1,6 @@
 <?php
     session_start();
     require_once '../config.php';
-
     // ── GET PRODUCT ─────────────────────────────────────
     $id = (int)($_GET['id'] ?? 0);
     if (!$id) { header('Location: products.php'); exit; }
@@ -990,15 +989,6 @@
 
     </div>
 
-    <!-- ══ FOOTER ══ -->
-    <footer style="margin-top:48px">
-        <div class="container-main">
-            <div class="footer-bottom" style="border-top:none;padding-top:0">
-                <span>© 2024 PhoneStore. All rights reserved.</span>
-            </div>
-        </div>
-    </footer>
-
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     // Switch ảnh thumbnail
@@ -1050,5 +1040,6 @@
         document.querySelector('.user-dropdown-menu')?.classList.remove('show');
     });
     </script>
+    <?php include '../includes/footer.php'; ?>
     </body>
 </html>

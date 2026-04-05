@@ -47,31 +47,62 @@
             // Upload ảnh
             $image = trim($_POST['image_current'] ?? '');
             if (!empty($_FILES['image']['name'])) {
-                // Tạo thư mục nếu chưa có
-                if (!is_dir('../assets/images/banners/')) {
-                    mkdir('../assets/images/banners/', 0755, true);
-                }
-                $ext      = strtolower(pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION));
-                $filename = 'banner-' . time() . '.' . $ext;
-                $dest     = '../assets/images/banners/' . $filename;
-                if (move_uploaded_file($_FILES['image']['tmp_name'], $dest)) {
-                    // Xóa ảnh cũ
-                    if ($image && file_exists('../assets/images/banners/'.$image)) {
-                        unlink('../assets/images/banners/'.$image);
+
+                $allowed_ext  = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+                $allowed_mime = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+                $max_size     = 5 * 1024 * 1024; // 5MB
+
+                $ext  = strtolower(pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION));
+                $mime = mime_content_type($_FILES['image']['tmp_name']); // đọc từ file thật, không tin $_FILES['type']
+
+                if ($_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+                    $error = 'Lỗi khi upload ảnh, vui lòng thử lại!';
+                } elseif (!in_array($ext, $allowed_ext)) {
+                    $error = 'Chỉ chấp nhận file ảnh: JPG, PNG, WEBP, GIF!';
+                } elseif (!in_array($mime, $allowed_mime)) {
+                    $error = 'File không hợp lệ (sai định dạng thực tế)!';
+                } elseif ($_FILES['image']['size'] > $max_size) {
+                    $error = 'Ảnh không được vượt quá 5MB!';
+                } else {
+                    $upload_dir = '../assets/images/banners/';
+
+                    // Tạo thư mục nếu chưa có
+                    if (!is_dir($upload_dir)) {
+                        mkdir($upload_dir, 0755, true);
                     }
-                    $image = $filename;
+
+                    // Tên file ngẫu nhiên để tránh trùng và tránh path traversal
+                    $filename = 'banner-' . time() . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
+                    $dest     = $upload_dir . $filename;
+
+                    if (move_uploaded_file($_FILES['image']['tmp_name'], $dest)) {
+                        // Xóa ảnh cũ sau khi upload thành công
+                        if ($image && file_exists($upload_dir . $image)) {
+                            unlink($upload_dir . $image);
+                        }
+                        $image = $filename;
+                    } else {
+                        $error = 'Không thể lưu ảnh, kiểm tra quyền thư mục!';
+                    }
                 }
             }
 
-            if ($bid > 0) {
-                $stmt = $conn->prepare("UPDATE promotions SET title=?,description=?,image=?,start_date=?,end_date=?,is_active=?,link_url=?,banner_type=? WHERE id=?");
-                $stmt->bind_param("sssssissi", $title, $description, $image, $start_date, $end_date, $is_active, $link_url, $banner_type, $bid);
+            // Chặn tiếp tục lưu DB nếu upload lỗi
+            if ($error) {
+                // giữ nguyên, không INSERT/UPDATE
+            } elseif (empty($title)) {
+                $error = 'Vui lòng nhập tiêu đề banner!';
             } else {
-                $stmt = $conn->prepare("INSERT INTO promotions (title,description,image,start_date,end_date,is_active,link_url,banner_type) VALUES (?,?,?,?,?,?,?,?)");
-                $stmt->bind_param("sssssiss", $title, $description, $image, $start_date, $end_date, $is_active, $link_url, $banner_type);
+                if ($bid > 0) {
+                    $stmt = $conn->prepare("UPDATE promotions SET title=?,description=?,image=?,start_date=?,end_date=?,is_active=?,link_url=?,banner_type=? WHERE id=?");
+                    $stmt->bind_param("sssssissi", $title, $description, $image, $start_date, $end_date, $is_active, $link_url, $banner_type, $bid);
+                } else {
+                    $stmt = $conn->prepare("INSERT INTO promotions (title,description,image,start_date,end_date,is_active,link_url,banner_type) VALUES (?,?,?,?,?,?,?,?)");
+                    $stmt->bind_param("sssssiss", $title, $description, $image, $start_date, $end_date, $is_active, $link_url, $banner_type);
+                }
+                $stmt->execute();
+                $success = $bid > 0 ? 'Cập nhật banner thành công!' : 'Thêm banner thành công!';
             }
-            $stmt->execute();
-            $success = $bid > 0 ? 'Cập nhật banner thành công!' : 'Thêm banner thành công!';
         }
     }
 
@@ -233,44 +264,13 @@
 </head>
 <body>
 
-<!-- ══ SIDEBAR ══ -->
-<aside class="sidebar">
-    <div class="sidebar-brand">
-        <a href="index.php">Phone<span>Store</span></a>
-        <div class="sidebar-brand-sub">Admin Panel</div>
-    </div>
-    <nav class="sidebar-nav">
-        <div class="sidebar-section">Tổng quan</div>
-        <a href="index.php" class="sidebar-item"><i class="bi bi-speedometer2"></i> Dashboard</a>
-        <div class="sidebar-section">Quản lý</div>
-        <a href="manage_products.php" class="sidebar-item"><i class="bi bi-phone"></i> Sản phẩm</a>
-        <a href="manage_orders.php" class="sidebar-item">
-            <i class="bi bi-bag-check"></i> Đơn hàng
-            <?php if ($pending_orders > 0): ?><span class="sidebar-badge"><?= $pending_orders ?></span><?php endif; ?>
-        </a>
-        <a href="manage_users.php" class="sidebar-item"><i class="bi bi-people"></i> Khách hàng</a>
-        <a href="manage_reviews.php" class="sidebar-item"><i class="bi bi-star"></i> Đánh giá</a>
-        <a href="manage_banners.php" class="sidebar-item active"><i class="bi bi-image"></i> Banner</a>
-        <div class="sidebar-section">Khác</div>
-        <a href="../index.php" class="sidebar-item" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Xem website</a>
-    </nav>
-    <div class="sidebar-footer">
-        <div class="sidebar-user">
-            <div class="sidebar-avatar"><?= mb_strtoupper(mb_substr($_SESSION['full_name'], 0, 1)) ?></div>
-            <div>
-                <div class="sidebar-user-name"><?= htmlspecialchars($_SESSION['full_name']) ?></div>
-                <div class="sidebar-user-role">Quản trị viên</div>
-            </div>
-        </div>
-        <a href="../auth/logout.php" class="btn-logout"><i class="bi bi-box-arrow-right"></i> Đăng xuất</a>
-    </div>
-</aside>
+<?php include 'sidebar.php'; ?>
 
 <!-- ══ MAIN ══ -->
 <div class="main-content">
     <div class="admin-topbar">
         <div class="admin-topbar-title">
-            <?= $action === 'list' ? '🖼️ Quản lý Banner' : ($action === 'add' ? '➕ Thêm Banner' : '✏️ Sửa Banner') ?>
+            <?= $action === 'list' ? 'Quản lý Banner' : ($action === 'add' ? '➕ Thêm Banner' : '✏️ Sửa Banner') ?>
         </div>
         <div style="display:flex;gap:8px">
             <?php if ($action !== 'list'): ?>

@@ -6,7 +6,7 @@ INSERT INTO categories (name, slug) VALUES
 ('Tai nghe', 'tai-nghe');
 
 -- Hãng
-INSERT INTO brands (name) VALUES ('Apple'), ('Samsung');
+INSERT INTO brands (name) VALUES ('Apple'), ('Samsung'), ('Xiaomi');
 
 -- Sản phẩm (không cần ảnh vẫn hiện được emoji 📱)
 INSERT INTO products (name, slug, category_id, brand_id, price, old_price, discount_percent, stock, description, ram, storage, is_featured) VALUES
